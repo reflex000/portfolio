@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
 import { content } from './content.js'
 import { createPhysics } from './physics.js'
 import { buildCar } from './car.js'
@@ -18,14 +19,22 @@ export class Experience {
     this.renderer.setSize(window.innerWidth, window.innerHeight)
     this.renderer.shadowMap.enabled = true
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping
+    this.renderer.toneMappingExposure = 0.98
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace
     container.appendChild(this.renderer.domElement)
 
     this.scene = new THREE.Scene()
     this.scene.background = new THREE.Color(palette.bg)
     this.scene.fog = new THREE.Fog(palette.bg, 70, 160)
 
+    // Soft studio environment so PBR materials get real reflections
+    const pmrem = new THREE.PMREMGenerator(this.renderer)
+    this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture
+    this.scene.environmentIntensity = 0.32
+
     this.camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 300)
-    this.cameraOffset = new THREE.Vector3(6, 18, 16)
+    this.cameraOffset = new THREE.Vector3(5.5, 13, 14.5)
     this.introOffset = new THREE.Vector3(0, 90, 60)
     this.camera.position.copy(this.introOffset)
     this.camera.lookAt(0, 0, 0)
@@ -33,12 +42,16 @@ export class Experience {
     this.startTime = 0
 
     // ---------- Lights ----------
-    this.scene.add(new THREE.AmbientLight('#fff5e8', 1.1))
-    this.sun = new THREE.DirectionalLight('#fff2dd', 2.2)
+    // Hemisphere = warm sky bounce + cooler ground bounce (kills the flat look)
+    this.scene.add(new THREE.HemisphereLight('#fffdf2', '#cbb397', 0.5))
+    this.sun = new THREE.DirectionalLight('#ffedca', 2.1)
     this.sun.castShadow = true
     this.sun.shadow.mapSize.set(2048, 2048)
     this.sun.shadow.camera.near = 5
     this.sun.shadow.camera.far = 120
+    this.sun.shadow.bias = -0.0004
+    this.sun.shadow.normalBias = 0.03
+    this.sun.shadow.radius = 4
     const s = 45
     this.sun.shadow.camera.left = -s
     this.sun.shadow.camera.right = s

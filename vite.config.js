@@ -32,4 +32,8 @@ const screenshotEndpoint = {
 export default {
   base: './',
   plugins: [screenshotEndpoint],
+  preview: {
+    port: Number(process.env.PORT) || 4173,
+    strictPort: false,
+  },
 }

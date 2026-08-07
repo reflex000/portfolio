@@ -25,6 +25,11 @@ export function createUI(content, { onStart, onReset }) {
     onStart?.()
   })
 
+  // ?autostart skips the splash — handy for shared links & screenshots
+  if (new URLSearchParams(location.search).has('autostart')) {
+    setTimeout(() => document.getElementById('start-btn').click(), 300)
+  }
+
   document.getElementById('reset-btn').addEventListener('click', () => onReset?.())
 
   let currentZone = null

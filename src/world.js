@@ -23,11 +23,26 @@ export function buildWorld(scene, world, content) {
   // ---------- Ground ----------
   const ground = new THREE.Mesh(
     new THREE.CircleGeometry(130, 64),
-    new THREE.MeshStandardMaterial({ color: palette.ground, roughness: 1 })
+    new THREE.MeshStandardMaterial({ map: makeGroundTexture(), roughness: 1 })
   )
   ground.rotation.x = -Math.PI / 2
   ground.receiveShadow = true
   scene.add(ground)
+
+  // ---------- Roads to the four areas ----------
+  buildRoads(scene)
+
+  // ---------- Horizon hills (sit in the fog for depth) ----------
+  const hillMat1 = new THREE.MeshStandardMaterial({ color: '#d9c9ae', roughness: 1 })
+  const hillMat2 = new THREE.MeshStandardMaterial({ color: '#cbbfa8', roughness: 1 })
+  for (let i = 0; i < 14; i++) {
+    const angle = (i / 14) * Math.PI * 2 + 0.2
+    const dist = 105 + (i % 3) * 9
+    const hill = new THREE.Mesh(new THREE.SphereGeometry(14 + (i % 4) * 6, 16, 10), i % 2 ? hillMat1 : hillMat2)
+    hill.scale.y = 0.32 + (i % 3) * 0.06
+    hill.position.set(Math.cos(angle) * dist, -2, Math.sin(angle) * dist)
+    scene.add(hill)
+  }
 
   // ---------- Perimeter fence ----------
   const fenceMat = new THREE.MeshStandardMaterial({ color: palette.blush, roughness: 0.9 })
@@ -273,6 +288,102 @@ export function buildWorld(scene, world, content) {
   })
 
   return { syncList, zones }
+}
+
+// Speckled warm ground with a soft radial falloff — reads like clay/paper
+// instead of a flat hex fill.
+function makeGroundTexture() {
+  const size = 1024
+  const canvas = document.createElement('canvas')
+  canvas.width = canvas.height = size
+  const ctx = canvas.getContext('2d')
+
+  ctx.fillStyle = palette.ground
+  ctx.fillRect(0, 0, size, size)
+
+  // Grain: thousands of tiny darker/lighter flecks
+  for (let i = 0; i < 5200; i++) {
+    const x = Math.random() * size
+    const y = Math.random() * size
+    const r = Math.random() * 1.8 + 0.4
+    const light = Math.random() > 0.5
+    ctx.fillStyle = light ? 'rgba(255, 250, 240, 0.35)' : 'rgba(150, 120, 90, 0.14)'
+    ctx.beginPath()
+    ctx.arc(x, y, r, 0, Math.PI * 2)
+    ctx.fill()
+  }
+
+  // Larger soft blotches for organic variation
+  for (let i = 0; i < 60; i++) {
+    const x = Math.random() * size
+    const y = Math.random() * size
+    const r = Math.random() * 70 + 30
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r)
+    g.addColorStop(0, 'rgba(190, 160, 125, 0.06)')
+    g.addColorStop(1, 'rgba(190, 160, 125, 0)')
+    ctx.fillStyle = g
+    ctx.beginPath()
+    ctx.arc(x, y, r, 0, Math.PI * 2)
+    ctx.fill()
+  }
+
+  // Radial falloff: slightly darker toward the rim
+  const rim = ctx.createRadialGradient(size / 2, size / 2, size * 0.25, size / 2, size / 2, size * 0.52)
+  rim.addColorStop(0, 'rgba(120, 95, 70, 0)')
+  rim.addColorStop(1, 'rgba(120, 95, 70, 0.16)')
+  ctx.fillStyle = rim
+  ctx.fillRect(0, 0, size, size)
+
+  const tex = new THREE.CanvasTexture(canvas)
+  tex.colorSpace = THREE.SRGBColorSpace
+  tex.anisotropy = 4
+  return tex
+}
+
+// Clay-path roads from the start plaza to each area, with cream dashes.
+function buildRoads(scene) {
+  const roadMat = new THREE.MeshStandardMaterial({ color: '#e0cdb2', roughness: 0.95 })
+  const dashMat = new THREE.MeshStandardMaterial({ color: '#fdf3e3', roughness: 0.9 })
+  const roadDefs = [
+    { w: 9, l: 46, x: 0, z: -33, dir: 'z' },   // north — projects
+    { w: 9, l: 40, x: 0, z: 30, dir: 'z' },    // south — contact
+    { w: 9, l: 42, x: -31, z: 0, dir: 'x' },   // west — about
+    { w: 9, l: 42, x: 31, z: 0, dir: 'x' },    // east — playground
+  ]
+  for (const r of roadDefs) {
+    const geo = r.dir === 'z' ? new THREE.PlaneGeometry(r.w, r.l) : new THREE.PlaneGeometry(r.l, r.w)
+    const road = new THREE.Mesh(geo, roadMat)
+    road.rotation.x = -Math.PI / 2
+    road.position.set(r.x, 0.015, r.z)
+    road.receiveShadow = true
+    scene.add(road)
+
+    // Center dashes
+    const count = Math.floor(r.l / 5)
+    for (let i = 0; i < count; i++) {
+      const t = (i + 0.5) / count - 0.5
+      const dash = new THREE.Mesh(new THREE.PlaneGeometry(0.4, 2.2), dashMat)
+      dash.rotation.x = -Math.PI / 2
+      if (r.dir === 'z') {
+        dash.position.set(r.x, 0.02, r.z + t * r.l)
+      } else {
+        dash.rotation.z = Math.PI / 2
+        dash.position.set(r.x + t * r.l, 0.02, r.z)
+      }
+      scene.add(dash)
+    }
+  }
+
+  // Start plaza — a circle where the car spawns
+  const plaza = new THREE.Mesh(new THREE.CircleGeometry(11, 48), roadMat)
+  plaza.rotation.x = -Math.PI / 2
+  plaza.position.set(0, 0.012, 0)
+  plaza.receiveShadow = true
+  scene.add(plaza)
+  const plazaRing = new THREE.Mesh(new THREE.RingGeometry(10.4, 11, 48), dashMat)
+  plazaRing.rotation.x = -Math.PI / 2
+  plazaRing.position.set(0, 0.018, 0)
+  scene.add(plazaRing)
 }
 
 // A sign with two posts + a textured panel, plus static physics for the posts.
