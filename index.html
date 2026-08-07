@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Sidharath — Portfolio</title>
+  </head>
+  <body>
+    <div id="app"></div>
+
+    <!-- Intro splash -->
+    <div id="splash">
+      <div class="splash-card">
+        <h1 id="splash-name">...</h1>
+        <p id="splash-title">...</p>
+        <button id="start-btn">Start driving &nbsp;🚗</button>
+      </div>
+    </div>
+
+    <!-- HUD -->
+    <div id="hud" class="hidden">
+      <div id="badge">
+        <strong id="badge-name"></strong>
+        <span id="badge-title"></span>
+      </div>
+      <div id="hint"></div>
+      <button id="reset-btn" title="Reset car (R)">↺ Reset</button>
+      <div id="popup" class="hidden">
+        <h3 id="popup-title"></h3>
+        <p id="popup-body"></p>
+        <a id="popup-link" target="_blank" rel="noopener"></a>
+      </div>
+      <div id="joystick" class="hidden">
+        <div id="joystick-stick"></div>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
