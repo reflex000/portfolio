@@ -7,7 +7,7 @@ import { addStaticBox, addDynamicBox, addDynamicCylinder, addDynamicSphere } fro
 
 // Night palette — deep indigo world, glowing water rim, warm lanterns
 export const palette = {
-  bg: '#141232',
+  bg: '#100e28',
   water: '#1c2cae',
   shore: '#7fe8ff',
   ground: '#403a68',
@@ -165,7 +165,7 @@ export function buildWorld(scene, world, content) {
   projTitle.position.set(15, 0.04, -32)
   scene.add(projTitle)
 
-  buildProjectScreen(scene, world, zones, content.projects, animated)
+  const projectNav = buildProjectScreen(scene, world, zones, content.projects, animated)
 
   // ============================================================
   // ABOUT — west: bio floor text + skill crates
@@ -297,7 +297,7 @@ export function buildWorld(scene, world, content) {
     [-30, -55], [30, -60], [-62, 30], [65, 32], [-15, 55], [15, 58],
     [40, -40], [-40, 40], [68, -10], [-68, 12], [5, -12], [-6, -13],
   ]
-  treeSpots.forEach(([x, z], i) => buildTree(scene, world, x, z, i))
+  treeSpots.forEach(([x, z], i) => buildTree(scene, world, x, z, i, animated))
 
   const rockSpots = [[11, 12], [-12, -11], [24, -14], [-24, 14], [58, 6], [-58, -8]]
   const rockMat = new THREE.MeshStandardMaterial({ color: '#4a4080', roughness: 0.95, flatShading: true })
@@ -309,7 +309,7 @@ export function buildWorld(scene, world, content) {
     scene.add(rock)
   })
 
-  return { syncList, zones, animated, startDecor }
+  return { syncList, zones, animated, startDecor, projectNav }
 }
 
 // ------------------------------------------------------------------
@@ -475,16 +475,16 @@ function buildProjectScreen(scene, world, zones, projects, animated) {
 
   // Pads: prev / open / next in front of the screen
   buildTriggerPad(scene, zones, {
-    x: -9, z: -44, radius: 3.6, color: '#ff9d9b',
+    x: -9, z: -44, radius: 3.6, color: '#ff9d9b', isNav: true,
     onEnter: () => setIndex(index - 1),
     getPopup: () => getPopup(false),
   })
   buildTriggerPad(scene, zones, {
-    x: 0, z: -46.5, radius: 4, color: '#ffcf86',
+    x: 0, z: -46.5, radius: 4, color: '#ffcf86', isNav: true,
     getPopup: () => getPopup(true),
   })
   buildTriggerPad(scene, zones, {
-    x: 9, z: -44, radius: 3.6, color: '#7fd4b5',
+    x: 9, z: -44, radius: 3.6, color: '#7fd4b5', isNav: true,
     onEnter: () => setIndex(index + 1),
     getPopup: () => getPopup(false),
   })
@@ -497,6 +497,20 @@ function buildProjectScreen(scene, world, zones, projects, animated) {
   const nextLabel = makeFloorText('NEXT ▶', { height: 1.3, color: '#7fd4b5' })
   nextLabel.position.set(9, 0.05, -38.5)
   scene.add(nextLabel)
+
+  // Whole viewing area: inside it, ← → arrow keys flip projects
+  zones.push({
+    x: 0, z: -46, radius: 13, isNav: true,
+    getPopup: () => ({
+      ...getPopup(false),
+      body: '← → arrow keys to flip projects · drive onto OPEN to visit',
+    }),
+  })
+
+  return {
+    prev: () => setIndex(index - 1),
+    next: () => setIndex(index + 1),
+  }
 }
 
 // ------------------------------------------------------------------
@@ -601,7 +615,7 @@ function buildBench(scene, world, x, z, rotY = 0) {
 }
 
 // ------------------------------------------------------------------
-function buildTree(scene, world, x, z, i) {
+function buildTree(scene, world, x, z, i, animated) {
   const tree = new THREE.Group()
   const trunkMat = new THREE.MeshStandardMaterial({ color: '#6b5470', roughness: 0.9 })
   const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.4, 2, 8), trunkMat)
@@ -609,13 +623,16 @@ function buildTree(scene, world, x, z, i) {
   trunk.castShadow = true
   tree.add(trunk)
 
-  // Leafy crown: a cluster of blobs (some purple, like Bruno's night foliage)
+  // Leafy crown: a cluster of blobs. The two spawn trees (last indices) are
+  // big pink ones, like Bruno's foliage over the start ring.
+  const isSpawnTree = i >= 16
   const crownSets = [
     ['#7a5fa8', '#8a6fb8', '#6b4f9e'],
     ['#3f7259', '#4a8266', '#35604d'],
-    ['#8a6fb8', '#9a7fc8', '#7a5fa8'],
+    ['#c77fd8', '#d98fd8', '#b06fc8'],
   ]
-  const colors = crownSets[i % 3]
+  const colors = isSpawnTree ? crownSets[2] : crownSets[i % 3]
+  const crown = new THREE.Group()
   const blobs = [
     [0, 3, 0, 1.5],
     [0.9, 2.55, 0.3, 1.0],
@@ -629,10 +646,19 @@ function buildTree(scene, world, x, z, i) {
     )
     blob.position.set(bx, by, bz)
     blob.castShadow = true
-    tree.add(blob)
+    crown.add(blob)
+  })
+  tree.add(crown)
+
+  // Wind sway — the crown breathes and rocks gently
+  const phase = i * 1.37
+  animated.push((t) => {
+    crown.rotation.z = Math.sin(t * 1.1 + phase) * 0.05
+    crown.rotation.x = Math.cos(t * 0.8 + phase) * 0.04
+    crown.position.x = Math.sin(t * 1.3 + phase) * 0.06
   })
 
-  const s = 0.8 + (i % 4) * 0.16
+  const s = (isSpawnTree ? 1.35 : 0.8 + (i % 4) * 0.16)
   tree.scale.setScalar(s)
   tree.position.set(x, 0, z)
   scene.add(tree)
@@ -672,6 +698,14 @@ function makeGroundTexture() {
     ctx.beginPath()
     ctx.arc(x, y, r, 0, Math.PI * 2)
     ctx.fill()
+  }
+
+  // Faint diagonal grid, like Bruno's floor
+  ctx.strokeStyle = 'rgba(120, 110, 190, 0.10)'
+  ctx.lineWidth = 2
+  for (let d = 0; d < size * 2; d += 112) {
+    ctx.beginPath(); ctx.moveTo(d, 0); ctx.lineTo(d - size, size); ctx.stroke()
+    ctx.beginPath(); ctx.moveTo(d - size, 0); ctx.lineTo(d, size); ctx.stroke()
   }
 
   // Bruno-style little x marks in a loose grid

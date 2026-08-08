@@ -29,10 +29,10 @@ export const content = {
       url: 'https://github.com/reflex000/agentic-sre',
     },
     {
-      title: 'LMF — Alerting Framework',
+      title: 'AlertFlow — Alerting Framework',
       tech: 'Azure Logic Apps · ServiceNow · Teams',
       description: 'One alerting pipeline for any source — Splunk, Okta, Veeam, Control-M… Receivers normalize to one contract; one processor correlates, opens and auto-resolves incidents, and routes cards to the right channel.',
-      url: 'https://github.com/reflex000/alerting-lmf',
+      url: 'https://github.com/reflex000/alertflow',
     },
     {
       title: 'Observability Dashboards',

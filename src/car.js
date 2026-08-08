@@ -5,7 +5,7 @@ import * as THREE from 'three'
 export function buildCar(palette) {
   const group = new THREE.Group()
 
-  const paintMat = new THREE.MeshStandardMaterial({ color: palette.coral, roughness: 0.32, metalness: 0.12 })
+  const paintMat = new THREE.MeshStandardMaterial({ color: '#c94b45', roughness: 0.32, metalness: 0.12 })
   const darkMat = new THREE.MeshStandardMaterial({ color: '#3c332d', roughness: 0.85 })
   const glassMat = new THREE.MeshStandardMaterial({ color: '#9fd4d6', roughness: 0.08, metalness: 0.35 })
   const chromeMat = new THREE.MeshStandardMaterial({ color: '#efe6d8', roughness: 0.25, metalness: 0.6 })

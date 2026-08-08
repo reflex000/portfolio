@@ -94,11 +94,12 @@ export class Experience {
     carGroup.add(headlight, headlight.target)
 
     // ---------- World ----------
-    const { syncList, zones, animated, startDecor } = buildWorld(this.scene, world, content)
+    const { syncList, zones, animated, startDecor, projectNav } = buildWorld(this.scene, world, content)
     this.syncList = syncList
     this.zones = zones
     this.animated = animated
     this.startDecor = startDecor
+    this.projectNav = projectNav
     this.activeZone = null
 
     // ---------- UI + controls ----------
@@ -113,6 +114,14 @@ export class Experience {
     this.input = createControls({
       onReset: () => this.resetCar(),
       onHorn: () => this.ui.horn(),
+      onArrow: (dir) => {
+        // Inside the projects viewing area, ← → flip the screen
+        if (!this.started || !this.activeZone?.isNav) return
+        if (dir < 0) this.projectNav.prev()
+        else this.projectNav.next()
+        const popup = this.activeZone.getPopup?.()
+        if (popup) this.ui.showPopup(popup)
+      },
     })
 
     this.upsideDownSince = null
@@ -249,7 +258,7 @@ export class Experience {
 
     // Gentle pulse on trigger rings
     for (const zone of this.zones) {
-      zone.ring.material.opacity = 0.5 + Math.sin(elapsed * 2.5) * 0.2
+      if (zone.ring) zone.ring.material.opacity = 0.5 + Math.sin(elapsed * 2.5) * 0.2
     }
 
     // Lantern flicker, floating sparkles, start-ring pulse

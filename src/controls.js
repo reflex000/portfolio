@@ -1,7 +1,7 @@
 // Keyboard (WASD / arrows) + touch joystick input.
 // Exposes state.throttle and state.steer in [-1, 1], state.brake as bool.
 
-export function createControls({ onReset, onHorn }) {
+export function createControls({ onReset, onHorn, onArrow }) {
   const state = { throttle: 0, steer: 0, brake: false }
   const keys = new Set()
 
@@ -23,6 +23,8 @@ export function createControls({ onReset, onHorn }) {
     }
     if (e.code === 'KeyR') onReset?.()
     if (e.code === 'KeyH') onHorn?.()
+    if (!e.repeat && e.code === 'ArrowLeft') onArrow?.(-1)
+    if (!e.repeat && e.code === 'ArrowRight') onArrow?.(1)
     keys.add(e.code)
     update()
   })
