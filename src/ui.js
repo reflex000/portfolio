@@ -1,33 +1,40 @@
 // DOM overlay: splash screen, badge, hint, popup card, horn sound.
 
 export function createUI(content, { onStart, onReset }) {
-  const splash = document.getElementById('splash')
   const hud = document.getElementById('hud')
   const popup = document.getElementById('popup')
   const popupTitle = document.getElementById('popup-title')
   const popupBody = document.getElementById('popup-body')
   const popupLink = document.getElementById('popup-link')
+  const hint = document.getElementById('hint')
 
-  document.getElementById('splash-name').textContent = content.name
-  document.getElementById('splash-title').textContent = content.title
   document.getElementById('badge-name').textContent = content.name
   document.getElementById('badge-title').textContent = content.title
 
   const isTouch = window.matchMedia('(pointer: coarse)').matches
-  document.getElementById('hint').textContent = isTouch
-    ? 'Use the joystick to drive'
-    : 'WASD / arrows to drive · Space to brake · R to reset · H for horn'
 
-  document.getElementById('start-btn').addEventListener('click', () => {
-    splash.classList.add('fade')
-    hud.classList.remove('hidden')
-    setTimeout(() => splash.classList.add('hidden'), 700)
+  // Bruno-style: no splash screen — the world is already visible,
+  // any click / tap / key starts the drive.
+  hud.classList.remove('hidden')
+  hint.textContent = isTouch ? 'Tap anywhere to start' : 'Click anywhere or press any key to start'
+  hint.classList.add('pulse')
+
+  let begun = false
+  const begin = () => {
+    if (begun) return
+    begun = true
+    hint.classList.remove('pulse')
+    hint.textContent = isTouch
+      ? 'Use the joystick to drive'
+      : 'WASD / arrows to drive · Space to brake · R to reset · H for horn'
     onStart?.()
-  })
+  }
+  window.addEventListener('pointerdown', begin)
+  window.addEventListener('keydown', begin)
 
-  // ?autostart skips the splash — handy for shared links & screenshots
+  // ?autostart skips the wait — handy for shared links & screenshots
   if (new URLSearchParams(location.search).has('autostart')) {
-    setTimeout(() => document.getElementById('start-btn').click(), 300)
+    setTimeout(begin, 300)
   }
 
   document.getElementById('reset-btn').addEventListener('click', () => onReset?.())

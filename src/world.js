@@ -1,26 +1,61 @@
 import * as THREE from 'three'
+import { FontLoader } from 'three/examples/jsm/loaders/FontLoader.js'
+import { TextGeometry } from 'three/examples/jsm/geometries/TextGeometry.js'
+import fontData from './fonts/helvetiker_bold.typeface.json'
 import { makeFloorText, makePanelTexture, makeLabelTexture } from './utils.js'
 import { addStaticBox, addDynamicBox, addDynamicCylinder, addDynamicSphere } from './physics.js'
 
+// Night palette — deep indigo world, glowing water rim, warm lanterns
 export const palette = {
-  bg: '#fdf6ec',
-  ground: '#f3e5d3',
-  ink: '#5b4b43',
+  bg: '#141232',
+  water: '#1c2cae',
+  shore: '#7fe8ff',
+  ground: '#403a68',
+  path: '#8d81ab',
+  ink: '#d8d3f2',
+  letters: '#5b64f0',
   coral: '#f28482',
   sage: '#84a59d',
   peach: '#f6bd60',
   blush: '#f5cac3',
   cream: '#fffaf2',
+  lamp: '#ff9d3c',
+  spark: '#ff5fd7',
 }
 
-// Builds the whole world. Returns { syncList, zones } —
-// syncList pairs each dynamic physics body with its mesh,
-// zones are circular triggers checked against the car position.
+// Builds the whole world. Returns { syncList, zones, animated, startDecor } —
+// syncList pairs each dynamic physics body with its mesh, zones are circular
+// popup triggers, animated are per-frame update callbacks, startDecor is
+// removed from the scene when driving starts.
 export function buildWorld(scene, world, content) {
   const syncList = []
   const zones = []
+  const animated = []
 
-  // ---------- Ground ----------
+  // ---------- Water all around the island ----------
+  const water = new THREE.Mesh(
+    new THREE.CircleGeometry(420, 64),
+    new THREE.MeshStandardMaterial({
+      color: palette.water,
+      emissive: '#2333cc',
+      emissiveIntensity: 0.5,
+      roughness: 0.45,
+    })
+  )
+  water.rotation.x = -Math.PI / 2
+  water.position.y = -0.35
+  scene.add(water)
+
+  // Glowing shoreline rim (blooms like neon)
+  const shore = new THREE.Mesh(
+    new THREE.RingGeometry(129.5, 133.5, 96),
+    new THREE.MeshBasicMaterial({ color: palette.shore, transparent: true, opacity: 0.85 })
+  )
+  shore.rotation.x = -Math.PI / 2
+  shore.position.y = -0.18
+  scene.add(shore)
+
+  // ---------- Island ground ----------
   const ground = new THREE.Mesh(
     new THREE.CircleGeometry(130, 64),
     new THREE.MeshStandardMaterial({ map: makeGroundTexture(), roughness: 1 })
@@ -29,23 +64,43 @@ export function buildWorld(scene, world, content) {
   ground.receiveShadow = true
   scene.add(ground)
 
-  // ---------- Roads to the four areas ----------
+  // ---------- Tile paths + plaza ----------
   buildRoads(scene)
 
-  // ---------- Horizon hills (sit in the fog for depth) ----------
-  const hillMat1 = new THREE.MeshStandardMaterial({ color: '#d9c9ae', roughness: 1 })
-  const hillMat2 = new THREE.MeshStandardMaterial({ color: '#cbbfa8', roughness: 1 })
-  for (let i = 0; i < 14; i++) {
-    const angle = (i / 14) * Math.PI * 2 + 0.2
-    const dist = 105 + (i % 3) * 9
-    const hill = new THREE.Mesh(new THREE.SphereGeometry(14 + (i % 4) * 6, 16, 10), i % 2 ? hillMat1 : hillMat2)
-    hill.scale.y = 0.32 + (i % 3) * 0.06
-    hill.position.set(Math.cos(angle) * dist, -2, Math.sin(angle) * dist)
-    scene.add(hill)
+  // ---------- Grass tufts (instanced) ----------
+  buildGrass(scene)
+
+  // ---------- Lampposts with warm glow ----------
+  const lampSpots = [
+    [8.5, 8.5], [-8.5, 8.5], [8.5, -8.5], [-8.5, -8.5],
+    [14, -46], [-14, -46], [14, 46], [-14, 46],
+  ]
+  lampSpots.forEach(([x, z], i) => {
+    const lamp = buildLamppost(scene, world, x, z)
+    animated.push((t) => {
+      lamp.light.intensity = 11 + Math.sin(t * 6.5 + i * 1.7) * 1.4
+    })
+  })
+
+  // ---------- Pink sparkles drifting around ----------
+  const sparkMat = new THREE.SpriteMaterial({ color: palette.spark, transparent: true })
+  for (let i = 0; i < 42; i++) {
+    const s = new THREE.Sprite(sparkMat.clone())
+    const angle = Math.random() * Math.PI * 2
+    const dist = 12 + Math.random() * 105
+    const baseY = 0.7 + Math.random() * 2.2
+    s.position.set(Math.cos(angle) * dist, baseY, Math.sin(angle) * dist)
+    s.scale.setScalar(0.22 + Math.random() * 0.18)
+    scene.add(s)
+    const phase = Math.random() * Math.PI * 2
+    animated.push((t) => {
+      s.position.y = baseY + Math.sin(t * 1.4 + phase) * 0.35
+      s.material.opacity = 0.55 + Math.sin(t * 2.2 + phase) * 0.4
+    })
   }
 
   // ---------- Perimeter fence ----------
-  const fenceMat = new THREE.MeshStandardMaterial({ color: palette.blush, roughness: 0.9 })
+  const fenceMat = new THREE.MeshStandardMaterial({ color: '#4e4380', roughness: 0.9 })
   const half = 80
   const fenceDefs = [
     { size: [half, 0.8, 0.5], pos: [0, 0.8, -half] },
@@ -61,18 +116,55 @@ export function buildWorld(scene, world, content) {
     addStaticBox(world, f.size, f.pos)
   }
 
-  // ---------- Start area: name + hints on the floor ----------
-  const nameText = makeFloorText(content.name.toUpperCase(), { height: 6, color: palette.ink })
-  nameText.position.set(0, 0.03, -2)
-  scene.add(nameText)
+  // ---------- Start area: extruded 3D name + hints ----------
+  const font = new FontLoader().parse(fontData)
+  const nameGeo = new TextGeometry(content.name.toUpperCase(), {
+    font,
+    size: 2.3,
+    depth: 0.9,
+    curveSegments: 5,
+    bevelEnabled: true,
+    bevelThickness: 0.06,
+    bevelSize: 0.05,
+    bevelSegments: 2,
+  })
+  nameGeo.computeBoundingBox()
+  const nameWidth = nameGeo.boundingBox.max.x - nameGeo.boundingBox.min.x
+  nameGeo.translate(-nameWidth / 2, 0, 0)
+  nameGeo.rotateX(-Math.PI / 2)
+  const nameMesh = new THREE.Mesh(
+    nameGeo,
+    new THREE.MeshStandardMaterial({ color: palette.letters, roughness: 0.5 })
+  )
+  nameMesh.position.set(0, 0.04, -2.5)
+  nameMesh.castShadow = true
+  scene.add(nameMesh)
 
-  const titleText = makeFloorText(content.title, { height: 2, color: '#a58d7f' })
-  titleText.position.set(0, 0.03, 3)
+  const titleText = makeFloorText(content.title, { height: 1.6, color: '#b7aed6' })
+  titleText.position.set(0, 0.04, 3.5)
   scene.add(titleText)
 
-  const tagText = makeFloorText(content.tagline, { height: 1.4, color: '#b9a99b' })
-  tagText.position.set(0, 0.03, 14)
+  const tagText = makeFloorText(content.tagline, { height: 1.4, color: '#8f86b8' })
+  tagText.position.set(0, 0.04, 14)
   scene.add(tagText)
+
+  // Click-to-start ring + label around the spawn point (removed on start)
+  const startDecor = new THREE.Group()
+  const startRing = new THREE.Mesh(
+    new THREE.RingGeometry(7.1, 7.5, 64),
+    new THREE.MeshBasicMaterial({ color: '#e8e4ff', transparent: true, opacity: 0.9 })
+  )
+  startRing.rotation.x = -Math.PI / 2
+  startRing.position.set(0, 0.05, 8)
+  startDecor.add(startRing)
+  const startLabel = makeFloorText('CLICK TO START', { height: 1.3, color: '#efe9ff' })
+  startLabel.position.set(9.5, 0.05, 15)
+  startLabel.rotation.z = -0.25
+  startDecor.add(startLabel)
+  scene.add(startDecor)
+  animated.push((t) => {
+    startRing.material.opacity = 0.6 + Math.sin(t * 2.4) * 0.3
+  })
 
   // Direction labels near the start
   const dirs = [
@@ -82,16 +174,16 @@ export function buildWorld(scene, world, content) {
     { text: '↓ CONTACT', pos: [0, 18] },
   ]
   for (const d of dirs) {
-    const t = makeFloorText(d.text, { height: 1.6, color: '#c4b3a4' })
-    t.position.set(d.pos[0], 0.03, d.pos[1])
+    const t = makeFloorText(d.text, { height: 1.6, color: '#7d74a4' })
+    t.position.set(d.pos[0], 0.04, d.pos[1])
     scene.add(t)
   }
 
   // ============================================================
   // PROJECTS — north (negative z): billboards + trigger pads
   // ============================================================
-  const projTitle = makeFloorText('PROJECTS', { height: 4, color: palette.sage })
-  projTitle.position.set(0, 0.03, -30)
+  const projTitle = makeFloorText('PROJECTS', { height: 4, color: '#7fd4b5' })
+  projTitle.position.set(0, 0.04, -30)
   scene.add(projTitle)
 
   const spacing = 20
@@ -102,7 +194,7 @@ export function buildWorld(scene, world, content) {
       x,
       z: -44,
       radius: 4.5,
-      color: palette.sage,
+      color: '#5dd6a8',
       popup: {
         title: project.title,
         body: `${project.tech} — ${project.description}`,
@@ -115,12 +207,12 @@ export function buildWorld(scene, world, content) {
   // ============================================================
   // ABOUT — west (negative x): bio floor text + skill crates
   // ============================================================
-  const aboutTitle = makeFloorText('ABOUT', { height: 4, color: palette.peach })
-  aboutTitle.position.set(-32, 0.03, 0)
+  const aboutTitle = makeFloorText('ABOUT', { height: 4, color: '#ffcf86' })
+  aboutTitle.position.set(-32, 0.04, 0)
   scene.add(aboutTitle)
 
-  const bio = makeFloorText(content.about.lines, { height: 1.7 * content.about.lines.length, color: '#8d7a6d' })
-  bio.position.set(-50, 0.03, 0)
+  const bio = makeFloorText(content.about.lines, { height: 1.7 * content.about.lines.length, color: '#a89fce' })
+  bio.position.set(-50, 0.04, 0)
   scene.add(bio)
 
   // Skill crates — dynamic boxes you can smash around
@@ -131,7 +223,7 @@ export function buildWorld(scene, world, content) {
     const z = -14 - row * 4
     const size = 1.1
     const crateColors = [palette.peach, palette.coral, palette.sage, palette.blush]
-    const tex = makeLabelTexture(skill, { bg: crateColors[i % 4], fg: '#ffffff' })
+    const tex = makeLabelTexture(skill, { bg: crateColors[i % 4], fg: '#463a30' })
     const mesh = new THREE.Mesh(
       new THREE.BoxGeometry(size * 2, size * 2, size * 2),
       new THREE.MeshStandardMaterial({ map: tex, roughness: 0.8 })
@@ -142,23 +234,22 @@ export function buildWorld(scene, world, content) {
     syncList.push({ mesh, body })
   })
 
-  const skillsLabel = makeFloorText('my skills — smash them!', { height: 1.3, color: '#b9a99b' })
-  skillsLabel.position.set(-40, 0.03, -8)
+  const skillsLabel = makeFloorText('my skills — smash them!', { height: 1.3, color: '#8f86b8' })
+  skillsLabel.position.set(-40, 0.04, -8)
   scene.add(skillsLabel)
 
   // ============================================================
   // PLAYGROUND — east (positive x): bowling + brick wall + ball
   // ============================================================
-  const playTitle = makeFloorText('PLAYGROUND', { height: 4, color: palette.coral })
-  playTitle.position.set(34, 0.03, 0)
+  const playTitle = makeFloorText('PLAYGROUND', { height: 4, color: '#ff9d9b' })
+  playTitle.position.set(34, 0.04, 0)
   scene.add(playTitle)
 
   // Bowling pins in a triangle
-  const pinMat = new THREE.MeshStandardMaterial({ color: '#fffaf2', roughness: 0.5 })
+  const pinMat = new THREE.MeshStandardMaterial({ color: '#f4eee2', roughness: 0.5 })
   const stripeMat = new THREE.MeshStandardMaterial({ color: palette.coral, roughness: 0.5 })
   const pinBaseX = 52
   const pinBaseZ = -14
-  let pinIndex = 0
   for (let row = 0; row < 4; row++) {
     for (let i = 0; i <= row; i++) {
       const x = pinBaseX + (i - row / 2) * 1.6
@@ -172,12 +263,11 @@ export function buildWorld(scene, world, content) {
       scene.add(pin)
       const body = addDynamicCylinder(world, 0.32, 0.42, 1.6, [x, 0.85, z], 0.5)
       syncList.push({ mesh: pin, body })
-      pinIndex++
     }
   }
 
-  const bowlLabel = makeFloorText('STRIKE!', { height: 1.6, color: '#c4b3a4' })
-  bowlLabel.position.set(pinBaseX, 0.03, pinBaseZ + 8)
+  const bowlLabel = makeFloorText('STRIKE!', { height: 1.6, color: '#8f86b8' })
+  bowlLabel.position.set(pinBaseX, 0.04, pinBaseZ + 8)
   scene.add(bowlLabel)
 
   // Big beach ball
@@ -211,15 +301,15 @@ export function buildWorld(scene, world, content) {
     }
   }
 
-  const wallLabel = makeFloorText('CRASH ME', { height: 1.6, color: '#c4b3a4' })
-  wallLabel.position.set(wallX, 0.03, wallZ + 6)
+  const wallLabel = makeFloorText('CRASH ME', { height: 1.6, color: '#8f86b8' })
+  wallLabel.position.set(wallX, 0.04, wallZ + 6)
   scene.add(wallLabel)
 
   // ============================================================
   // CONTACT — south (positive z): trigger pads for socials
   // ============================================================
   const contactTitle = makeFloorText('CONTACT', { height: 4, color: palette.ink })
-  contactTitle.position.set(0, 0.03, 32)
+  contactTitle.position.set(0, 0.04, 32)
   scene.add(contactTitle)
 
   const socialDefs = [
@@ -254,11 +344,11 @@ export function buildWorld(scene, world, content) {
       x,
       z,
       radius: 4,
-      color: palette.peach,
+      color: '#ffcf86',
       popup: { ...s.popup, url: s.url },
     })
     const label = makeFloorText(s.label, { height: 1.5, color: palette.ink })
-    label.position.set(x, 0.04, z + 6)
+    label.position.set(x, 0.05, z + 6)
     scene.add(label)
   })
 
@@ -268,8 +358,8 @@ export function buildWorld(scene, world, content) {
     [-30, -55], [30, -60], [-62, 30], [65, 32], [-15, 55], [15, 58],
     [40, -40], [-40, 40], [68, -10], [-68, 12],
   ]
-  const trunkMat = new THREE.MeshStandardMaterial({ color: '#b08968', roughness: 0.9 })
-  const leafColors = [palette.sage, '#9dbba9', '#6d9887']
+  const trunkMat = new THREE.MeshStandardMaterial({ color: '#6b5470', roughness: 0.9 })
+  const leafColors = ['#3f7259', '#35604d', '#8a5fa8']
   treeSpots.forEach(([x, z], i) => {
     const tree = new THREE.Group()
     const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.4, 1.6, 8), trunkMat)
@@ -287,11 +377,10 @@ export function buildWorld(scene, world, content) {
     addStaticBox(world, [0.4, 1, 0.4], [x, 1, z])
   })
 
-  return { syncList, zones }
+  return { syncList, zones, animated, startDecor }
 }
 
-// Speckled warm ground with a soft radial falloff — reads like clay/paper
-// instead of a flat hex fill.
+// Dark purple-tinted grassy ground with speckles and a soft rim falloff.
 function makeGroundTexture() {
   const size = 1024
   const canvas = document.createElement('canvas')
@@ -301,36 +390,36 @@ function makeGroundTexture() {
   ctx.fillStyle = palette.ground
   ctx.fillRect(0, 0, size, size)
 
-  // Grain: thousands of tiny darker/lighter flecks
-  for (let i = 0; i < 5200; i++) {
+  // Organic green-ish patches
+  for (let i = 0; i < 70; i++) {
     const x = Math.random() * size
     const y = Math.random() * size
-    const r = Math.random() * 1.8 + 0.4
-    const light = Math.random() > 0.5
-    ctx.fillStyle = light ? 'rgba(255, 250, 240, 0.35)' : 'rgba(150, 120, 90, 0.14)'
-    ctx.beginPath()
-    ctx.arc(x, y, r, 0, Math.PI * 2)
-    ctx.fill()
-  }
-
-  // Larger soft blotches for organic variation
-  for (let i = 0; i < 60; i++) {
-    const x = Math.random() * size
-    const y = Math.random() * size
-    const r = Math.random() * 70 + 30
+    const r = Math.random() * 90 + 40
     const g = ctx.createRadialGradient(x, y, 0, x, y, r)
-    g.addColorStop(0, 'rgba(190, 160, 125, 0.06)')
-    g.addColorStop(1, 'rgba(190, 160, 125, 0)')
+    g.addColorStop(0, 'rgba(60, 96, 80, 0.10)')
+    g.addColorStop(1, 'rgba(60, 96, 80, 0)')
     ctx.fillStyle = g
     ctx.beginPath()
     ctx.arc(x, y, r, 0, Math.PI * 2)
     ctx.fill()
   }
 
-  // Radial falloff: slightly darker toward the rim
+  // Grain flecks
+  for (let i = 0; i < 5200; i++) {
+    const x = Math.random() * size
+    const y = Math.random() * size
+    const r = Math.random() * 1.7 + 0.4
+    const light = Math.random() > 0.5
+    ctx.fillStyle = light ? 'rgba(150, 140, 200, 0.20)' : 'rgba(20, 16, 45, 0.22)'
+    ctx.beginPath()
+    ctx.arc(x, y, r, 0, Math.PI * 2)
+    ctx.fill()
+  }
+
+  // Rim falloff
   const rim = ctx.createRadialGradient(size / 2, size / 2, size * 0.25, size / 2, size / 2, size * 0.52)
-  rim.addColorStop(0, 'rgba(120, 95, 70, 0)')
-  rim.addColorStop(1, 'rgba(120, 95, 70, 0.16)')
+  rim.addColorStop(0, 'rgba(10, 8, 30, 0)')
+  rim.addColorStop(1, 'rgba(10, 8, 30, 0.28)')
   ctx.fillStyle = rim
   ctx.fillRect(0, 0, size, size)
 
@@ -340,10 +429,39 @@ function makeGroundTexture() {
   return tex
 }
 
-// Clay-path roads from the start plaza to each area, with cream dashes.
+// Lavender stone-tile texture used for paths and the plaza.
+function makeTileTexture() {
+  const size = 512
+  const tile = 64
+  const canvas = document.createElement('canvas')
+  canvas.width = canvas.height = size
+  const ctx = canvas.getContext('2d')
+
+  for (let ty = 0; ty < size / tile; ty++) {
+    for (let tx = 0; tx < size / tile; tx++) {
+      const v = (Math.random() - 0.5) * 14
+      ctx.fillStyle = `rgb(${141 + v}, ${129 + v}, ${171 + v})`
+      ctx.fillRect(tx * tile, ty * tile, tile, tile)
+    }
+  }
+  ctx.strokeStyle = 'rgba(70, 60, 105, 0.55)'
+  ctx.lineWidth = 3
+  for (let p = 0; p <= size; p += tile) {
+    ctx.beginPath(); ctx.moveTo(p, 0); ctx.lineTo(p, size); ctx.stroke()
+    ctx.beginPath(); ctx.moveTo(0, p); ctx.lineTo(size, p); ctx.stroke()
+  }
+
+  const tex = new THREE.CanvasTexture(canvas)
+  tex.colorSpace = THREE.SRGBColorSpace
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping
+  tex.anisotropy = 4
+  return tex
+}
+
+// Tiled stone paths from the plaza to each area, with soft cream dashes.
 function buildRoads(scene) {
-  const roadMat = new THREE.MeshStandardMaterial({ color: '#e0cdb2', roughness: 0.95 })
-  const dashMat = new THREE.MeshStandardMaterial({ color: '#fdf3e3', roughness: 0.9 })
+  const tileTex = makeTileTexture()
+  const dashMat = new THREE.MeshStandardMaterial({ color: '#d9d2ef', roughness: 0.9 })
   const roadDefs = [
     { w: 9, l: 46, x: 0, z: -33, dir: 'z' },   // north — projects
     { w: 9, l: 40, x: 0, z: 30, dir: 'z' },    // south — contact
@@ -351,14 +469,16 @@ function buildRoads(scene) {
     { w: 9, l: 42, x: 31, z: 0, dir: 'x' },    // east — playground
   ]
   for (const r of roadDefs) {
+    const tex = tileTex.clone()
+    tex.needsUpdate = true
     const geo = r.dir === 'z' ? new THREE.PlaneGeometry(r.w, r.l) : new THREE.PlaneGeometry(r.l, r.w)
-    const road = new THREE.Mesh(geo, roadMat)
+    tex.repeat.set(geo.parameters.width / 4.5, geo.parameters.height / 4.5)
+    const road = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map: tex, roughness: 0.95 }))
     road.rotation.x = -Math.PI / 2
     road.position.set(r.x, 0.015, r.z)
     road.receiveShadow = true
     scene.add(road)
 
-    // Center dashes
     const count = Math.floor(r.l / 5)
     for (let i = 0; i < count; i++) {
       const t = (i + 0.5) / count - 0.5
@@ -374,8 +494,14 @@ function buildRoads(scene) {
     }
   }
 
-  // Start plaza — a circle where the car spawns
-  const plaza = new THREE.Mesh(new THREE.CircleGeometry(11, 48), roadMat)
+  // Start plaza
+  const plazaTex = tileTex.clone()
+  plazaTex.needsUpdate = true
+  plazaTex.repeat.set(5, 5)
+  const plaza = new THREE.Mesh(
+    new THREE.CircleGeometry(11, 48),
+    new THREE.MeshStandardMaterial({ map: plazaTex, roughness: 0.95 })
+  )
   plaza.rotation.x = -Math.PI / 2
   plaza.position.set(0, 0.012, 0)
   plaza.receiveShadow = true
@@ -386,10 +512,77 @@ function buildRoads(scene) {
   scene.add(plazaRing)
 }
 
+// Thousands of tiny grass tufts, instanced for performance.
+function buildGrass(scene) {
+  const geo = new THREE.ConeGeometry(0.14, 0.8, 4)
+  const mat = new THREE.MeshStandardMaterial({ roughness: 1 })
+  const count = 2400
+  const inst = new THREE.InstancedMesh(geo, mat, count)
+  const dummy = new THREE.Object3D()
+  const colors = [new THREE.Color('#3f7259'), new THREE.Color('#35604d'), new THREE.Color('#52558f')]
+  let placed = 0
+  let guard = 0
+  while (placed < count && guard < count * 30) {
+    guard++
+    const angle = Math.random() * Math.PI * 2
+    const dist = Math.sqrt(Math.random()) * 124
+    const x = Math.cos(angle) * dist
+    const z = Math.sin(angle) * dist
+    // keep paths, plaza and pin/wall spots clear
+    if (Math.abs(x) < 6.5 && z > -58 && z < 52) continue
+    if (Math.abs(z) < 6.5 && Math.abs(x) < 54) continue
+    if (dist < 12.5) continue
+    dummy.position.set(x, 0.32, z)
+    dummy.rotation.set((Math.random() - 0.5) * 0.5, Math.random() * Math.PI, (Math.random() - 0.5) * 0.5)
+    dummy.scale.setScalar(0.7 + Math.random() * 0.9)
+    dummy.updateMatrix()
+    inst.setMatrixAt(placed, dummy.matrix)
+    inst.setColorAt(placed, colors[placed % 3])
+    placed++
+  }
+  inst.instanceMatrix.needsUpdate = true
+  if (inst.instanceColor) inst.instanceColor.needsUpdate = true
+  scene.add(inst)
+}
+
+// A lamppost with an emissive lantern and a warm point light.
+function buildLamppost(scene, world, x, z) {
+  const group = new THREE.Group()
+  const postMat = new THREE.MeshStandardMaterial({ color: '#332c52', roughness: 0.8 })
+  const post = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.13, 3.4, 8), postMat)
+  post.position.y = 1.7
+  post.castShadow = true
+  group.add(post)
+
+  const cap = new THREE.Mesh(new THREE.ConeGeometry(0.45, 0.35, 4), postMat)
+  cap.position.y = 3.75
+  group.add(cap)
+
+  const lantern = new THREE.Mesh(
+    new THREE.BoxGeometry(0.5, 0.55, 0.5),
+    new THREE.MeshStandardMaterial({
+      color: '#ffb254',
+      emissive: '#ff9d3c',
+      emissiveIntensity: 2.4,
+    })
+  )
+  lantern.position.y = 3.35
+  group.add(lantern)
+
+  const light = new THREE.PointLight(palette.lamp, 11, 17, 2)
+  light.position.y = 3.3
+  group.add(light)
+
+  group.position.set(x, 0, z)
+  scene.add(group)
+  addStaticBox(world, [0.15, 1.7, 0.15], [x, 1.7, z])
+  return { group, light }
+}
+
 // A sign with two posts + a textured panel, plus static physics for the posts.
 function buildBillboard(scene, world, project, x, z) {
   const group = new THREE.Group()
-  const postMat = new THREE.MeshStandardMaterial({ color: '#b08968', roughness: 0.9 })
+  const postMat = new THREE.MeshStandardMaterial({ color: '#6b5470', roughness: 0.9 })
 
   for (const px of [-4, 4]) {
     const post = new THREE.Mesh(new THREE.BoxGeometry(0.5, 5, 0.5), postMat)
@@ -401,20 +594,15 @@ function buildBillboard(scene, world, project, x, z) {
 
   const texture = makePanelTexture(project.title, project.tech, {
     bg: palette.cream,
-    fg: palette.ink,
-    accent: palette.sage,
+    fg: '#463a55',
+    accent: '#6f9b8e',
   })
-  const panel = new THREE.Mesh(
-    new THREE.BoxGeometry(9.5, 4.75, 0.3),
-    [
-      new THREE.MeshStandardMaterial({ color: palette.cream }),
-      new THREE.MeshStandardMaterial({ color: palette.cream }),
-      new THREE.MeshStandardMaterial({ color: palette.cream }),
-      new THREE.MeshStandardMaterial({ color: palette.cream }),
-      new THREE.MeshStandardMaterial({ map: texture }), // front (+z, facing the start area)
-      new THREE.MeshStandardMaterial({ color: palette.cream }),
-    ]
-  )
+  const sideMat = new THREE.MeshStandardMaterial({ color: palette.cream })
+  const panel = new THREE.Mesh(new THREE.BoxGeometry(9.5, 4.75, 0.3), [
+    sideMat, sideMat, sideMat, sideMat,
+    new THREE.MeshStandardMaterial({ map: texture, emissive: '#fffaf2', emissiveMap: texture, emissiveIntensity: 0.35 }),
+    sideMat,
+  ])
   panel.position.set(0, 4, 0)
   panel.castShadow = true
   group.add(panel)

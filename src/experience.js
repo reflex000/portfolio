@@ -1,5 +1,9 @@
 import * as THREE from 'three'
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js'
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
+import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js'
 import { content } from './content.js'
 import { createPhysics } from './physics.js'
 import { buildCar } from './car.js'
@@ -9,7 +13,8 @@ import { createUI } from './ui.js'
 
 const MAX_ENGINE_FORCE = 700
 const MAX_STEER = 0.55
-const BRAKE_FORCE = 15
+const BRAKE_FORCE = 42
+const IDLE_DRAG = 7 // gentle brake when throttle is released, so the car coasts to a stop
 
 export class Experience {
   constructor(container) {
@@ -20,31 +25,43 @@ export class Experience {
     this.renderer.shadowMap.enabled = true
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping
-    this.renderer.toneMappingExposure = 0.98
+    this.renderer.toneMappingExposure = 1.05
     this.renderer.outputColorSpace = THREE.SRGBColorSpace
     container.appendChild(this.renderer.domElement)
 
     this.scene = new THREE.Scene()
     this.scene.background = new THREE.Color(palette.bg)
-    this.scene.fog = new THREE.Fog(palette.bg, 70, 160)
+    this.scene.fog = new THREE.Fog(palette.bg, 60, 150)
 
     // Soft studio environment so PBR materials get real reflections
     const pmrem = new THREE.PMREMGenerator(this.renderer)
     this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture
-    this.scene.environmentIntensity = 0.32
+    this.scene.environmentIntensity = 0.14
 
     this.camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 300)
     this.cameraOffset = new THREE.Vector3(5.5, 13, 14.5)
-    this.introOffset = new THREE.Vector3(0, 90, 60)
+    this.introOffset = new THREE.Vector3(0, 24, 26)
     this.camera.position.copy(this.introOffset)
     this.camera.lookAt(0, 0, 0)
     this.started = false
     this.startTime = 0
 
+    // Bloom — makes lanterns, shore rim and car lights glow like Bruno's
+    this.composer = new EffectComposer(this.renderer)
+    this.composer.addPass(new RenderPass(this.scene, this.camera))
+    this.bloom = new UnrealBloomPass(
+      new THREE.Vector2(window.innerWidth, window.innerHeight),
+      0.55, // strength
+      0.65, // radius
+      0.72 // threshold
+    )
+    this.composer.addPass(this.bloom)
+    this.composer.addPass(new OutputPass())
+
     // ---------- Lights ----------
-    // Hemisphere = warm sky bounce + cooler ground bounce (kills the flat look)
-    this.scene.add(new THREE.HemisphereLight('#fffdf2', '#cbb397', 0.5))
-    this.sun = new THREE.DirectionalLight('#ffedca', 2.1)
+    // Night: cool hemisphere bounce + soft blue moonlight
+    this.scene.add(new THREE.HemisphereLight('#585a9e', '#241f45', 0.85))
+    this.sun = new THREE.DirectionalLight('#8a9bff', 1.1)
     this.sun.castShadow = true
     this.sun.shadow.mapSize.set(2048, 2048)
     this.sun.shadow.camera.near = 5
@@ -70,10 +87,18 @@ export class Experience {
     this.wheels = wheels
     this.scene.add(carGroup, ...wheels)
 
+    // Working headlight beam
+    const headlight = new THREE.SpotLight('#ffedbe', 60, 30, 0.55, 0.6, 1.4)
+    headlight.position.set(0, 0.5, -1.6)
+    headlight.target.position.set(0, -0.4, -14)
+    carGroup.add(headlight, headlight.target)
+
     // ---------- World ----------
-    const { syncList, zones } = buildWorld(this.scene, world, content)
+    const { syncList, zones, animated, startDecor } = buildWorld(this.scene, world, content)
     this.syncList = syncList
     this.zones = zones
+    this.animated = animated
+    this.startDecor = startDecor
     this.activeZone = null
 
     // ---------- UI + controls ----------
@@ -81,6 +106,7 @@ export class Experience {
       onStart: () => {
         this.started = true
         this.startTime = this.clock.getElapsedTime()
+        this.scene.remove(this.startDecor)
       },
       onReset: () => this.resetCar(),
     })
@@ -111,6 +137,7 @@ export class Experience {
     this.camera.aspect = window.innerWidth / window.innerHeight
     this.camera.updateProjectionMatrix()
     this.renderer.setSize(window.innerWidth, window.innerHeight)
+    this.composer.setSize(window.innerWidth, window.innerHeight)
   }
 
   applyInput() {
@@ -125,8 +152,9 @@ export class Experience {
     this.vehicle.setSteeringValue(steer * MAX_STEER, 0)
     this.vehicle.setSteeringValue(steer * MAX_STEER, 1)
 
+    const brakeValue = brake ? BRAKE_FORCE : throttle === 0 ? IDLE_DRAG : 0
     for (let i = 0; i < 4; i++) {
-      this.vehicle.setBrake(brake ? BRAKE_FORCE : 0, i)
+      this.vehicle.setBrake(brakeValue, i)
     }
   }
 
@@ -218,7 +246,10 @@ export class Experience {
       zone.ring.material.opacity = 0.5 + Math.sin(elapsed * 2.5) * 0.2
     }
 
+    // Lantern flicker, floating sparkles, start-ring pulse
+    for (const update of this.animated) update(elapsed)
+
     this.updateCamera(delta, elapsed)
-    this.renderer.render(this.scene, this.camera)
+    this.composer.render()
   }
 }
