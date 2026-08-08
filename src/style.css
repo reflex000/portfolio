@@ -79,13 +79,32 @@ body {
   white-space: nowrap;
 }
 
-#hint.pulse {
-  animation: hintpulse 1.6s ease-in-out infinite;
+/* ---------- Handwritten start cue ---------- */
+#start-cue {
+  position: fixed;
+  left: 64%;
+  top: 17%;
+  z-index: 12;
+  color: #fff;
+  font-family: 'Caveat', cursive;
+  font-weight: 700;
+  font-size: clamp(2rem, 4.5vw, 3rem);
+  line-height: 0.95;
+  letter-spacing: 0.03em;
+  transform: rotate(-7deg);
+  pointer-events: none;
+  text-shadow: 0 2px 16px rgba(8, 6, 28, 0.7);
+  animation: cuefloat 2.6s ease-in-out infinite;
 }
 
-@keyframes hintpulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.55; }
+#start-cue svg {
+  display: block;
+  margin: 0 0 0.35rem -3.2rem;
+}
+
+@keyframes cuefloat {
+  0%, 100% { transform: rotate(-7deg) translateY(0); }
+  50% { transform: rotate(-7deg) translateY(-7px); }
 }
 
 #reset-btn {

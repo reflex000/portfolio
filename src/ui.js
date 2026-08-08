@@ -15,15 +15,17 @@ export function createUI(content, { onStart, onReset }) {
 
   // Bruno-style: no splash screen — the world is already visible,
   // any click / tap / key starts the drive.
+  const startCue = document.getElementById('start-cue')
   hud.classList.remove('hidden')
-  hint.textContent = isTouch ? 'Tap anywhere to start' : 'Click anywhere or press any key to start'
-  hint.classList.add('pulse')
+  hint.classList.add('hidden')
+  if (isTouch) startCue.querySelector('div').innerHTML = 'TAP TO<br>START'
 
   let begun = false
   const begin = () => {
     if (begun) return
     begun = true
-    hint.classList.remove('pulse')
+    startCue.classList.add('hidden')
+    hint.classList.remove('hidden')
     hint.textContent = isTouch
       ? 'Use the joystick to drive'
       : 'WASD / arrows to drive · Space to brake · R to reset · H for horn'

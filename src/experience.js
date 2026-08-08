@@ -40,7 +40,7 @@ export class Experience {
 
     this.camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 300)
     this.cameraOffset = new THREE.Vector3(5.5, 13, 14.5)
-    this.introOffset = new THREE.Vector3(0, 24, 26)
+    this.introOffset = new THREE.Vector3(9.5, 8.5, 14.5)
     this.camera.position.copy(this.introOffset)
     this.camera.lookAt(0, 0, 0)
     this.started = false
@@ -182,8 +182,14 @@ export class Experience {
     }
     if (found !== this.activeZone) {
       this.activeZone = found
-      if (found) this.ui.showPopup(found.popup)
-      else this.ui.hidePopup()
+      if (found) {
+        found.onEnter?.()
+        const popup = found.getPopup ? found.getPopup() : found.popup
+        if (popup) this.ui.showPopup(popup)
+        else this.ui.hidePopup()
+      } else {
+        this.ui.hidePopup()
+      }
     }
   }
 
